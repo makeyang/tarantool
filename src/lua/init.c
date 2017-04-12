@@ -101,6 +101,7 @@ extern char strict_lua[],
 	clock_lua[],
 	title_lua[],
 	env_lua[],
+	ext_table_lua[],
 	trigger_lua[],
 	p_lua[], /* LuaJIT 2.1 profiler */
 	zone_lua[] /* LuaJIT 2.1 profiler */;
@@ -112,6 +113,7 @@ static const char *lua_modules[] = {
 	"errno", errno_lua,
 	"fiber", fiber_lua,
 	"env", env_lua,
+	"ext_table", ext_table_lua,
 	"buffer", buffer_lua,
 	"msgpackffi", msgpackffi_lua,
 	"fun", fun_lua,
