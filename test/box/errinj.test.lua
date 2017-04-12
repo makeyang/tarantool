@@ -88,7 +88,7 @@ s_withindex:drop()
 -- Check transaction rollback when out of memory
 env = require('test_run')
 test_run = env.new()
-
+fiber = require('fiber')
 s = box.schema.space.create('s')
 _ = s:create_index('pk')
 errinj.set("ERRINJ_TUPLE_ALLOC", true)
@@ -98,37 +98,96 @@ s:auto_increment{}
 s:select{}
 s:auto_increment{}
 s:select{}
+
+ch = fiber.channel(1)
+
 test_run:cmd("setopt delimiter ';'")
-box.begin()
-    s:insert{1}
-box.commit();
-s:select{};
-box.begin()
-    s:insert{1}
-    s:insert{2}
-box.commit();
-s:select{};
-box.begin()
-    pcall(s.insert, s, {1})
-    s:insert{2}
-box.commit();
-s:select{};
-errinj.set("ERRINJ_TUPLE_ALLOC", false);
-box.begin()
-    s:insert{1}
-    errinj.set("ERRINJ_TUPLE_ALLOC", true)
-    s:insert{2}
-box.commit();
-s:select{};
-errinj.set("ERRINJ_TUPLE_ALLOC", false);
-box.begin()
-    s:insert{1}
-    errinj.set("ERRINJ_TUPLE_ALLOC", true)
-    pcall(s.insert, s, {2})
-box.commit();
-s:select{};
+
+function ins1()
+local _, err = pcall(
+    function()
+        box.begin()
+            s:insert{1}
+            box.commit()
+        end)
+        ch:put(err)
+end;
+
+function ins2()
+    local _, err = pcall(
+    function()
+        box.begin()
+            s:insert{1}
+            s:insert{2}
+        box.commit()
+    end)
+    ch:put(err)
+end;
+
+function ins3()
+    local _, err = pcall(
+    function()
+        box.begin()
+            pcall(s.insert, s, {1})
+            s:insert{2}
+        box.commit()
+    end)
+	ch:put(err)
+end;
+
+function ins4()
+    local _, err = pcall(
+    function()
+        box.begin()
+            s:insert{1}
+            errinj.set("ERRINJ_TUPLE_ALLOC", true)
+            s:insert{2}
+        box.commit()
+    end)
+	ch:put(err)
+end;
+
+function ins5()
+   local _, err = pcall(
+   function()
+        box.begin()
+            s:insert{1}
+            errinj.set("ERRINJ_TUPLE_ALLOC", true)
+            pcall(s.insert, s, {2})
+        box.commit()
+   end)
+   ch:put(err)
+end;
 
 test_run:cmd("setopt delimiter ''");
+
+f = fiber.create(ins1)
+while f:status() ~= "dead" do fiber.sleep(0) end
+s:select{}
+ch:get()
+
+f = fiber.create(ins2)
+while f:status() ~= "dead" do fiber.sleep(0) end
+s:select{}
+ch:get()
+
+f = fiber.create(ins3)
+while f:status() ~= "dead" do fiber.sleep(0) end
+s:select{}
+ch:get()
+
+errinj.set("ERRINJ_TUPLE_ALLOC", false);
+f = fiber.create(ins4)
+while f:status() ~= "dead" do fiber.sleep(0) end
+s:select{}
+ch:get()
+
+errinj.set("ERRINJ_TUPLE_ALLOC", false);
+f = fiber.create(ins5)
+while f:status() ~= "dead" do fiber.sleep(0) end
+s:select{}
+ch:get()
+ch:close()
 errinj.set("ERRINJ_TUPLE_ALLOC", false)
 
 s:drop()
