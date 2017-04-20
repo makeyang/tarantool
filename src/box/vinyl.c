@@ -6193,7 +6193,7 @@ vy_insert_secondary(struct vy_tx *tx, struct vy_index *index,
 	if (index->user_index_def->opts.is_unique) {
 		uint32_t key_len;
 		const char *key = tuple_extract_key(stmt, &def->key_def,
-						    &key_len);
+				&key_len);
 		if (key == NULL)
 			return -1;
 		uint32_t part_count = mp_decode_array(&key);
@@ -6239,7 +6239,8 @@ vy_replace_one(struct vy_tx *tx, struct space *space,
 	 */
 	if (stmt != NULL && !rlist_empty(&space->on_replace)) {
 		const char *key;
-		key = tuple_extract_key(new_tuple, &def->key_def, NULL);
+		key = tuple_extract_key(new_tuple,
+				&def->key_def, NULL);
 		if (key == NULL)
 			goto error_unref;
 		uint32_t part_count = mp_decode_array(&key);

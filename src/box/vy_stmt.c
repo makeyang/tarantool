@@ -455,7 +455,7 @@ vy_stmt_encode_primary(const struct tuple *value,
 	switch (type) {
 	case IPROTO_DELETE:
 		/* extract key */
-		extracted = tuple_extract_key(value, key_def, &size);
+		extracted = key_def->tuple_extract_key(value, key_def, &size);
 		if (extracted == NULL)
 			return -1;
 		request.key = extracted;
@@ -494,7 +494,7 @@ vy_stmt_encode_secondary(const struct tuple *value,
 	struct request request;
 	request_create(&request, type);
 	uint32_t size;
-	const char *extracted = tuple_extract_key(value, key_def, &size);
+	const char *extracted = key_def->tuple_extract_key(value, key_def, &size);
 	if (extracted == NULL)
 		return -1;
 	if (type == IPROTO_REPLACE) {
