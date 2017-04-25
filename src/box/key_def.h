@@ -265,6 +265,21 @@ typedef char *(*tuple_extract_key_raw_t)(const char *data,
 					const char *data_end,
 					const struct key_def *key_def,
 					uint32_t *key_size);
+/* Function calculates a common hash value for a tuple
+* @param tuple - a tuple
+* @param key_def - key_def for field description
+* @return - hash value
+*/
+typedef uint32_t (*tuple_hash_t)(const struct tuple *tuple,
+				const struct key_def *key_def);
+
+/* Function calculates a common hash value for a key
+ * @param key - full key (msgpack fields w/o array marker)
+ * @param key_def - key_def for field description
+ * @return - hash value
+ */
+typedef uint32_t (*key_hash_t)(const char *key,
+				const struct key_def *key_def);
 
 /* Definition of a multipart key. */
 struct key_def {
@@ -277,6 +292,9 @@ struct key_def {
 	
 	tuple_extract_key_raw_t tuple_extract_key_raw;
 
+	tuple_hash_t tuple_hash;
+
+	key_hash_t key_hash;
 	/** The size of the 'parts' array. */
 	uint32_t part_count;
 	/** Description of parts of a multipart index. */
