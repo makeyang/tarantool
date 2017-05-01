@@ -1901,7 +1901,12 @@ vy_run_write_page(struct vy_run_info *run_info, struct xlog *data_xlog,
 		if (vy_run_dump_stmt(stmt, data_xlog, page,
 				     key_def, is_primary) != 0)
 			goto error_rollback;
+
 		bloom_spectrum_add(bs, tuple_hash(stmt, user_key_def));
+
+		int64_t lsn = vy_stmt_lsn(stmt);
+		run_info->min_lsn = MIN(run_info->min_lsn, lsn);
+		run_info->max_lsn = MAX(run_info->max_lsn, lsn);
 
 		if (vy_write_iterator_next(wi, curr_stmt))
 			goto error_rollback;
@@ -2018,6 +2023,9 @@ vy_run_write_data(struct vy_run *run, const char *dirpath,
 	};
 	if (xlog_create(&data_xlog, path, &meta) < 0)
 		goto err_free_bloom;
+
+	run_info->min_lsn = INT64_MAX;
+	run_info->max_lsn = -1;
 
 	assert(run_info->page_infos == NULL);
 	uint32_t page_infos_capacity = 0;
@@ -2192,9 +2200,13 @@ vy_run_info_encode(const struct vy_run_info *run_info,
 	size_t max_key_size = tmp - run_info->max_key;
 
 	assert(run_info->has_bloom);
-	size_t size = mp_sizeof_map(4);
+	size_t size = mp_sizeof_map(6);
 	size += mp_sizeof_uint(VY_RUN_INFO_MIN_KEY) + min_key_size;
 	size += mp_sizeof_uint(VY_RUN_INFO_MAX_KEY) + max_key_size;
+	size += mp_sizeof_uint(VY_RUN_INFO_MIN_LSN) +
+		mp_sizeof_uint(run_info->min_lsn);
+	size += mp_sizeof_uint(VY_RUN_INFO_MAX_LSN) +
+		mp_sizeof_uint(run_info->max_lsn);
 	size += mp_sizeof_uint(VY_RUN_INFO_PAGE_COUNT) +
 		mp_sizeof_uint(run_info->count);
 	size += mp_sizeof_uint(VY_RUN_INFO_BLOOM) +
@@ -2208,13 +2220,17 @@ vy_run_info_encode(const struct vy_run_info *run_info,
 	memset(xrow, 0, sizeof(*xrow));
 	xrow->body->iov_base = pos;
 	/* encode values */
-	pos = mp_encode_map(pos, 4);
+	pos = mp_encode_map(pos, 6);
 	pos = mp_encode_uint(pos, VY_RUN_INFO_MIN_KEY);
 	memcpy(pos, run_info->min_key, min_key_size);
 	pos += min_key_size;
 	pos = mp_encode_uint(pos, VY_RUN_INFO_MAX_KEY);
 	memcpy(pos, run_info->max_key, max_key_size);
 	pos += max_key_size;
+	pos = mp_encode_uint(pos, VY_RUN_INFO_MIN_LSN);
+	pos = mp_encode_uint(pos, run_info->min_lsn);
+	pos = mp_encode_uint(pos, VY_RUN_INFO_MAX_LSN);
+	pos = mp_encode_uint(pos, run_info->max_lsn);
 	pos = mp_encode_uint(pos, VY_RUN_INFO_PAGE_COUNT);
 	pos = mp_encode_uint(pos, run_info->count);
 	pos = mp_encode_uint(pos, VY_RUN_INFO_BLOOM);
@@ -2971,8 +2987,6 @@ vy_index_recovery_cb(const struct vy_log_record *record, void *cb_arg)
 		run = vy_run_new(record->run_id);
 		if (run == NULL)
 			goto out;
-		run->info.min_lsn = record->min_lsn;
-		run->info.max_lsn = record->max_lsn;
 		char index_path[PATH_MAX];
 		vy_run_snprint_path(index_path, sizeof(index_path),
 				    index->path, run->id, VY_FILE_INDEX);
@@ -3691,8 +3705,7 @@ vy_task_dump_complete(struct vy_task *task)
 	 * Log change in metadata.
 	 */
 	vy_log_tx_begin();
-	vy_log_create_run(index->index_def->opts.lsn, run->id,
-			  run->info.min_lsn, run->info.max_lsn);
+	vy_log_create_run(index->index_def->opts.lsn, run->id);
 	for (range = vy_range_tree_first(&index->tree), i = 0;
 	     range != NULL;
 	     range = vy_range_tree_next(&index->tree, range), i++) {
@@ -3853,9 +3866,6 @@ vy_task_dump_new(struct mempool *pool, struct vy_index *index,
 	if (wi == NULL)
 		goto err_wi;
 
-	run->info.min_lsn = INT64_MAX;
-	run->info.max_lsn = -1;
-
 	struct vy_mem *mem;
 	rlist_foreach_entry(mem, &index->sealed, in_sealed) {
 		if (mem->min_lsn > dump_lsn)
@@ -3867,8 +3877,6 @@ vy_task_dump_new(struct mempool *pool, struct vy_index *index,
 		if (vy_write_iterator_add_mem(wi, mem) != 0)
 			goto err_wi_sub;
 
-		run->info.min_lsn = MIN(run->info.min_lsn, mem->min_lsn);
-		run->info.max_lsn = MAX(run->info.max_lsn, mem->max_lsn);
 		task->max_output_count += mem->tree.size;
 	}
 
@@ -3952,8 +3960,7 @@ vy_task_compact_complete(struct vy_task *task)
 			break;
 	}
 	if (new_slice != NULL) {
-		vy_log_create_run(index->index_def->opts.lsn, run->id,
-				  run->info.min_lsn, run->info.max_lsn);
+		vy_log_create_run(index->index_def->opts.lsn, run->id);
 		vy_log_insert_slice(range->id, run->id, new_slice->id,
 				    tuple_data_or_null(new_slice->begin),
 				    tuple_data_or_null(new_slice->end));
@@ -4075,19 +4082,12 @@ vy_task_compact_new(struct mempool *pool, struct vy_range *range,
 	if (wi == NULL)
 		goto err_wi;
 
-	run->info.min_lsn = INT64_MAX;
-	run->info.max_lsn = -1;
-
 	struct vy_slice *slice;
 	int n = range->compact_priority;
 	rlist_foreach_entry(slice, &range->slices, in_range) {
 		if (vy_write_iterator_add_slice(wi, slice) != 0)
 			goto err_wi_sub;
 
-		run->info.min_lsn = MIN(run->info.min_lsn,
-					slice->run->info.min_lsn);
-		run->info.max_lsn = MAX(run->info.max_lsn,
-					slice->run->info.max_lsn);
 		task->max_output_count += slice->keys;
 
 		/* Remember the slices we are compacting. */

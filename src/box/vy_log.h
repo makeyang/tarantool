@@ -94,8 +94,7 @@ enum vy_log_record_type {
 	VY_LOG_PREPARE_RUN		= 4,
 	/**
 	 * Commit a vinyl run file creation.
-	 * Requires vy_log_record::index_lsn, run_id,
-	 * min_lsn, max_lsn.
+	 * Requires vy_log_record::index_lsn, run_id.
 	 *
 	 * Written after a run file was successfully created.
 	 */
@@ -171,9 +170,6 @@ struct vy_log_record {
 	uint32_t space_id;
 	/** Index key definition. */
 	const struct key_def *key_def;
-	/** Min and max LSN spanned by the run. */
-	int64_t min_lsn;
-	int64_t max_lsn;
 	/** Link in vy_log::tx. */
 	struct rlist in_tx;
 };
@@ -442,8 +438,7 @@ vy_log_prepare_run(int64_t index_lsn, int64_t run_id)
 
 /** Helper to log a vinyl run creation. */
 static inline void
-vy_log_create_run(int64_t index_lsn, int64_t run_id,
-		  int64_t min_lsn, int64_t max_lsn)
+vy_log_create_run(int64_t index_lsn, int64_t run_id)
 {
 	struct vy_log_record record;
 	memset(&record, 0, sizeof(record));
@@ -451,8 +446,6 @@ vy_log_create_run(int64_t index_lsn, int64_t run_id,
 	record.signature = -1;
 	record.index_lsn = index_lsn;
 	record.run_id = run_id;
-	record.min_lsn = min_lsn;
-	record.max_lsn = max_lsn;
 	vy_log_write(&record);
 }
 
