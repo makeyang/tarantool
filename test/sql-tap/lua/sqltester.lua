@@ -9,7 +9,7 @@ local function flatten(arr)
 
    local function flatten(arr)
       for _, v in ipairs(arr) do
-	 if type(v) == "table" then
+	 if type(v) == "table" or box.tuple.is(v) then
 	    flatten(v)
 	 else
 	    table.insert(result, v)
@@ -41,12 +41,12 @@ test.do_test = do_test
 
 local function execsql(self, sql)
    local result = box.sql.execute(sql)
-   if type(result) ~= 'table' then return end
+   if type(result) ~= 'table' and not box.tuple.is(v) then return end
 
    r = flatten(result)
    for i, c in ipairs(r) do
        if c == nil then
-	   r[i] = ""
+           r[i] = ""
        end
    end
    return r
@@ -60,6 +60,9 @@ local function catchsql(self, sql)
 	r[2] = table.concat(r[2], " ") -- flatten result
     else
 	r[1] = 1
+        if r[2] ~= nil then
+                r[2] = tostring(r[2])
+        end
     end
     return r
 end
@@ -90,7 +93,7 @@ test.do_execsql2_test = do_execsql2_test
 
 local function execsql2(self, sql)
     local result = execsql(self, sql)
-    if type(result) ~= 'table' then return end
+    if type(result) ~= 'table' and not box.tuple.is(v) then return end
     -- shift rows down, revealing column names
     for i = #result,0,-1 do
         result[i+1] = result[i]
