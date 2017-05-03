@@ -40,6 +40,7 @@
 #include <lualib.h>
 #include <lj_cdata.h>
 #include <luajit.h>
+#include <ctype.h>
 
 #include <fiber.h>
 #include "coio.h"
