@@ -18,6 +18,7 @@ assert(tuple_encode ~= nil and tuple_bless ~= nil and is_tuple ~= nil)
 
 ffi.cdef[[
     struct space *space_by_id(uint32_t id);
+    extern uint32_t sc_version;
     void space_run_triggers(struct space *space, bool yesno);
     size_t space_bsize(struct space *space);
 
