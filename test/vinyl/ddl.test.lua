@@ -11,12 +11,6 @@ space = box.schema.space.create('test', { engine = 'vinyl' })
 index = space:create_index('primary', {type = 'hash'})
 space:drop()
 
--- ensure alter is not supported
-space = box.schema.space.create('test', { engine = 'vinyl' })
-index = space:create_index('primary')
-index:alter({parts={1,'unsigned'}})
-space:drop()
-
 -- new indexes on not empty space are unsupported
 space = box.schema.space.create('test', { engine = 'vinyl' })
 index = space:create_index('primary')
@@ -103,3 +97,35 @@ space:auto_increment{3}
 box.space._index:replace{space.id, 0, 'pk', 'tree', {unique=true}, {{0, 'unsigned'}, {1, 'unsigned'}}}
 space:select{}
 space:drop()
+
+--
+-- gh-2109: allow alter some opts of not empty indexes
+--
+space = box.schema.space.create('test', { engine = 'vinyl' })
+pk = space:create_index('pk', {run_count_per_level = 3})
+-- Create run and mem and then change page_size,
+-- run_count_per_level and make dump.
+space:auto_increment{1}
+space:auto_increment{2}
+space:auto_increment{3}
+box.snapshot()
+space:auto_increment{1}
+space:auto_increment{2}
+space:auto_increment{3}
+
+pk:info().run_count
+pk:info().page_size
+pk:alter({page_size = pk:info().page_size * 2, run_count_per_level = 1})
+
+space:auto_increment{1}
+box.snapshot()
+-- Wait for compaction. The compaction is starting because
+-- the new run_count_per_level == 1 and there are two runs.
+-- In old opts run_count_per_level was 3 and the compaction
+-- would not stated.
+while pk:info().run_count ~= 1 do fiber.sleep(0.01) end
+pk:info().run_count -- == 1, because new run_count_per_level == 1
+pk:info().page_size
+space:drop()
+
+
